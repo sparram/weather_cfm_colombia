@@ -1,7 +1,7 @@
 import os
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from src.dataset import ColombiaWeatherDataset
@@ -13,33 +13,36 @@ def entrenar_modelo():
     print(f"🖥️ Usando dispositivo: {device}")
     
     batch_size = 4
-    epochs = 50  # 🚀 Subimos a 50 épocas
+    epochs = 50
     lr = 1e-4
     
-    # 2. Cargar Dataset completo (con normalización activa)
-    print("📦 Cargando dataset completo con normalización...")
-    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=["01"], normalize=True)
+    # 2. Cargar Dataset completo con los 12 meses de 2024
+    print("📦 Cargando dataset completo para el año 2024 con normalización...")
+    meses_ano = [f"{i:02d}" for i in range(1, 13)]
+    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=meses_ano, normalize=True)
     
-    # 3. Dividir en Entrenamiento (80%) y Validación (20%)
-    val_split = 0.2
+    # 3. División temporal por bloques (Validación estricta sin fuga de datos)
+    # En lugar de random_split, separamos por bloques continuos (ej: cada 5 muestras, 1 para validación)
+    # O porcentaje cronológico: el 80% inicial para entrenar, el 20% final para validar.
     n_total = len(dataset)
-    n_val = int(n_total * val_split)
-    n_train = n_total - n_val
+    indices = list(range(n_total))
     
-    train_dataset, val_dataset = random_split(
-        dataset, 
-        [n_train, n_val],
-        generator=torch.Generator().manual_seed(42)
-    )
+    # Ejemplo: Validación basada en bloques temporales (ej. el último 20% del tiempo de cada mes o del año)
+    split_idx = int(n_total * 0.8)
+    train_indices = indices[:split_idx]
+    val_indices = indices[split_idx:]
     
-    print(f"📊 Total de muestras: {n_total} | Entrenamiento: {n_train} | Validación: {n_val}")
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+    
+    print(f"📊 Total de muestras: {n_total} | Entrenamiento (Bloque Temporal 1): {len(train_indices)} | Validación (Bloque Temporal 2): {len(val_indices)}")
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
     
     # 4. Inicializar el modelo U-Net
     print("🧠 Inicializando ConditionalUNet...")
-    model = ConditionalUNet(in_channels_cond=24, base_channels=32).to(device)
+    model = ConditionalUNet(in_channels_cond=28, base_channels=32).to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     
@@ -47,7 +50,7 @@ def entrenar_modelo():
     best_val_loss = float('inf')
     best_model_path = "models_checkpoints/best_model.pt"
     
-    print(f"🚀 Iniciando entrenamiento por {epochs} épocas (guardando el mejor modelo)...\n")
+    print(f"🚀 Iniciando entrenamiento por {epochs} épocas con partición temporal...\n")
     
     for epoch in range(epochs):
         # --- FASE DE ENTRENAMIENTO ---
@@ -105,17 +108,16 @@ def entrenar_modelo():
         
         print(f"🎯 Resultados Época {epoch+1} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
         
-        # 💡 Guardar el mejor modelo si la pérdida de validación mejora
+        # Guardar el mejor modelo según validación temporal
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), best_model_path)
             print(f"⭐ ¡Nuevo mejor modelo guardado en: {best_model_path} (Val Loss: {best_val_loss:.4f})!\n")
         else:
             print(f"💾 Checkpoint regular guardado (Mejor Val Loss actual: {best_val_loss:.4f})\n")
-            # Guardar también respaldo por época si lo deseas
             torch.save(model.state_dict(), f"models_checkpoints/cfm_unet_epoch_{epoch+1}.pt")
 
-    print("\n🎉 ¡Entrenamiento de 50 épocas completado con éxito!")
+    print("\n🎉 ¡Entrenamiento con validación temporal completado con éxito!")
 
 if __name__ == "__main__":
     entrenar_modelo()

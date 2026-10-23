@@ -46,7 +46,7 @@ class ConditionalUNet(nn.Module):
     Salida:
         - Campo vectorial de velocidad predicho v_t (B, 1, H, W)
     """
-    def __init__(self, in_channels_cond=24, base_channels=64):
+    def __init__(self, in_channels_cond=28, base_channels=64):
         super().__init__()
         
         # Canal de entrada: 1 (estado x_t) + 24 (condicionamiento ERA5/DEM interpolado) = 25 canales
@@ -131,12 +131,12 @@ if __name__ == "__main__":
     # Creamos un tensor simulado de lote (Batch size = 2)
     # x_t de alta resolución (IMERG): (2, 1, 153, 173)
     x_t_dummy = torch.randn(2, 1, 153, 173)
-    # cond de baja resolución (ERA5 + DEM): (2, 24, 70, 62)
-    cond_dummy = torch.randn(2, 24, 70, 62)
+    # cond de baja resolución (ERA5 + DEM + Cycle_times): (2, 28, 70, 62)
+    cond_dummy = torch.randn(2, 28, 70, 62)
     # Tiempo t aleatorio entre 0 y 1: (2,)
     t_dummy = torch.rand(2)
     
-    model = ConditionalUNet(in_channels_cond=24, base_channels=32)
+    model = ConditionalUNet(in_channels_cond=28, base_channels=32)
     
     with torch.no_grad():
         v_pred = model(x_t_dummy, cond_dummy, t_dummy)

@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+from torch.utils.data import Subset
 from src.dataset import ColombiaWeatherDataset
 from src.models.unet import ConditionalUNet
 
@@ -13,7 +14,7 @@ def ejecutar_inferencia():
     print(f"🖥️ Usando dispositivo para inferencia: {device}")
     
     # 1. Cargar el modelo entrenado
-    model = ConditionalUNet(in_channels_cond=24, base_channels=32).to(device)
+    model = ConditionalUNet(in_channels_cond=28, base_channels=32).to(device)
     ckpt_path = "models_checkpoints/best_model.pt"
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.eval()
@@ -24,15 +25,22 @@ def ejecutar_inferencia():
     y_mean = stats['y_mean'].item() # Escalar para desnormalizar
     y_std = stats['y_std'].item()
     
-    # 3. Cargar dataset con normalización activa
-    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=["01"], normalize=True)
+    # 3. Cargar los 12 meses y aplicar el mismo split temporal de validación
+    meses_ano = [f"{i:02d}" for i in range(1, 13)]
+    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=meses_ano, normalize=True)
     
-    # Obtenemos la muestra (ya normalizada para la red) y la versión real sin normalizar para comparar
-    idx_muestra = 0
-    x_cond, y_norm_tensor = dataset[idx_muestra]
+    n_total = len(dataset)
+    split_idx = int(n_total * 0.8)
+    val_indices = list(range(split_idx, n_total))
+    val_dataset = Subset(dataset, val_indices)
     
-    # Para comparar visualmente de forma justa, recuperamos el IMERG real en milímetros
-    _, y_real_tensor_raw = dataset._get_raw_item(idx_muestra)
+    # Elegir una muestra del conjunto de validación (ej: la primera de noviembre/diciembre)
+    idx_val = 0
+    x_cond, y_norm_tensor = val_dataset[idx_val]
+    
+    # Mapear al índice real del dataset original para obtener el IMERG en milímetros reales
+    real_idx = val_indices[idx_val]
+    _, y_real_tensor_raw = dataset._get_raw_item(real_idx)
     y_real_np = y_real_tensor_raw.squeeze(0).numpy() # (153, 173) en mm reales
     
     x_cond_batch = x_cond.unsqueeze(0).to(device)
