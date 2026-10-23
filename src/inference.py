@@ -14,7 +14,7 @@ def ejecutar_inferencia():
     
     # 1. Cargar el modelo entrenado
     model = ConditionalUNet(in_channels_cond=24, base_channels=32).to(device)
-    ckpt_path = "models_checkpoints/cfm_unet_epoch_5.pt"
+    ckpt_path = "models_checkpoints/best_model.pt"
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.eval()
     

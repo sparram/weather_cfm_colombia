@@ -13,12 +13,12 @@ def entrenar_modelo():
     print(f"🖥️ Usando dispositivo: {device}")
     
     batch_size = 4
-    epochs = 5
+    epochs = 50  # 🚀 Subimos a 50 épocas
     lr = 1e-4
     
-    # 2. Cargar Dataset completo
-    print("📦 Cargando dataset completo...")
-    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=["01"])
+    # 2. Cargar Dataset completo (con normalización activa)
+    print("📦 Cargando dataset completo con normalización...")
+    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=["01"], normalize=True)
     
     # 3. Dividir en Entrenamiento (80%) y Validación (20%)
     val_split = 0.2
@@ -29,7 +29,7 @@ def entrenar_modelo():
     train_dataset, val_dataset = random_split(
         dataset, 
         [n_train, n_val],
-        generator=torch.Generator().manual_seed(42)  # Semilla fija para reproducibilidad
+        generator=torch.Generator().manual_seed(42)
     )
     
     print(f"📊 Total de muestras: {n_total} | Entrenamiento: {n_train} | Validación: {n_val}")
@@ -44,8 +44,10 @@ def entrenar_modelo():
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     
     os.makedirs("models_checkpoints", exist_ok=True)
+    best_val_loss = float('inf')
+    best_model_path = "models_checkpoints/best_model.pt"
     
-    print(f"🚀 Iniciando entrenamiento por {epochs} épocas...\n")
+    print(f"🚀 Iniciando entrenamiento por {epochs} épocas (guardando el mejor modelo)...\n")
     
     for epoch in range(epochs):
         # --- FASE DE ENTRENAMIENTO ---
@@ -58,7 +60,6 @@ def entrenar_modelo():
             x1 = x1.to(device)
             bs = x1.shape[0]
             
-            # Formulación CFM
             x0 = torch.randn_like(x1)
             t = torch.rand(bs, device=device)
             t_expanded = t[:, None, None, None]
@@ -73,7 +74,6 @@ def entrenar_modelo():
             optimizer.step()
             
             train_loss += loss.item()
-            # Actualizar la barra de progreso con el loss actual del lote
             train_pbar.set_postfix(loss=f"{loss.item():.4f}")
             
         avg_train_loss = train_loss / len(train_loader)
@@ -103,15 +103,19 @@ def entrenar_modelo():
                 
         avg_val_loss = val_loss / len(val_loader)
         
-        # Resumen limpio al terminar la época
         print(f"🎯 Resultados Época {epoch+1} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
         
-        # Guardar checkpoint
-        ckpt_path = f"models_checkpoints/cfm_unet_epoch_{epoch+1}.pt"
-        torch.save(model.state_dict(), ckpt_path)
-        print(f"💾 Modelo guardado en: {ckpt_path}\n")
+        # 💡 Guardar el mejor modelo si la pérdida de validación mejora
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            torch.save(model.state_dict(), best_model_path)
+            print(f"⭐ ¡Nuevo mejor modelo guardado en: {best_model_path} (Val Loss: {best_val_loss:.4f})!\n")
+        else:
+            print(f"💾 Checkpoint regular guardado (Mejor Val Loss actual: {best_val_loss:.4f})\n")
+            # Guardar también respaldo por época si lo deseas
+            torch.save(model.state_dict(), f"models_checkpoints/cfm_unet_epoch_{epoch+1}.pt")
 
-    print("\n🎉 ¡Entrenamiento y validación completados con éxito!")
+    print("\n🎉 ¡Entrenamiento de 50 épocas completado con éxito!")
 
 if __name__ == "__main__":
     entrenar_modelo()
