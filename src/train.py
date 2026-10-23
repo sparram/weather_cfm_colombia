@@ -1,8 +1,9 @@
 import os
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+import gc
 
 from src.dataset import ColombiaWeatherDataset
 from src.models.unet import ConditionalUNet
@@ -16,31 +17,17 @@ def entrenar_modelo():
     epochs = 50
     lr = 1e-4
     
-    # 2. Cargar Dataset completo con los 12 meses de 2024
-    print("📦 Cargando dataset completo para el año 2024 con normalización...")
-    meses_ano = [f"{i:02d}" for i in range(1, 13)]
-    dataset = ColombiaWeatherDataset(data_dir="data/processed/", meses=meses_ano, normalize=True)
+    # 2. Cargar datasets limpios directamente desde los tensores pre-procesados
+    print("📦 Cargando datasets pre-procesados...")
+    train_dataset = ColombiaWeatherDataset(meses=[f"{m:02d}" for m in range(1, 11)], normalize=True)
+    val_dataset = ColombiaWeatherDataset(meses=[f"{m:02d}" for m in range(11, 13)], normalize=True)
     
-    # 3. División temporal por bloques (Validación estricta sin fuga de datos)
-    # En lugar de random_split, separamos por bloques continuos (ej: cada 5 muestras, 1 para validación)
-    # O porcentaje cronológico: el 80% inicial para entrenar, el 20% final para validar.
-    n_total = len(dataset)
-    indices = list(range(n_total))
+    print(f"📊 Entrenamiento: {len(train_dataset)} muestras | Validación: {len(val_dataset)} muestras")
     
-    # Ejemplo: Validación basada en bloques temporales (ej. el último 20% del tiempo de cada mes o del año)
-    split_idx = int(n_total * 0.8)
-    train_indices = indices[:split_idx]
-    val_indices = indices[split_idx:]
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=0)
     
-    train_dataset = Subset(dataset, train_indices)
-    val_dataset = Subset(dataset, val_indices)
-    
-    print(f"📊 Total de muestras: {n_total} | Entrenamiento (Bloque Temporal 1): {len(train_indices)} | Validación (Bloque Temporal 2): {len(val_indices)}")
-    
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
-    
-    # 4. Inicializar el modelo U-Net
+    # 3. Inicializar el modelo U-Net (28 canales de condición: 24 atmosféricos/DEM + 4 temporales)
     print("🧠 Inicializando ConditionalUNet...")
     model = ConditionalUNet(in_channels_cond=28, base_channels=32).to(device)
     
@@ -50,7 +37,7 @@ def entrenar_modelo():
     best_val_loss = float('inf')
     best_model_path = "models_checkpoints/best_model.pt"
     
-    print(f"🚀 Iniciando entrenamiento por {epochs} épocas con partición temporal...\n")
+    print(f"🚀 Iniciando entrenamiento por {epochs} épocas...\n")
     
     for epoch in range(epochs):
         # --- FASE DE ENTRENAMIENTO ---
@@ -116,6 +103,9 @@ def entrenar_modelo():
         else:
             print(f"💾 Checkpoint regular guardado (Mejor Val Loss actual: {best_val_loss:.4f})\n")
             torch.save(model.state_dict(), f"models_checkpoints/cfm_unet_epoch_{epoch+1}.pt")
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     print("\n🎉 ¡Entrenamiento con validación temporal completado con éxito!")
 
