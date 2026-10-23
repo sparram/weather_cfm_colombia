@@ -1,0 +1,11 @@
+# Datos climáticos (Nunca se suben a Git)
+data/
+*.nc
+*.grib
+
+# Entornos virtuales y caché de Python
+__pycache__/
+*.pyc
+.env
+venv/
+.ipynb_checkpoints/
