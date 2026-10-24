@@ -8,51 +8,40 @@ class ColombiaWeatherDataset(Dataset):
         self.meses = meses
         self.normalize = normalize
         
-        self.samples_index = []  
-        self.month_cache = {}    
+        self.samples_index = []  # (mes, local_idx)
+        self.monthly_X = {}
+        self.monthly_Y = {}
         
-        print(f"📦 Indexando metadatos para los meses: {meses}...")
+        print(f"📦 Mapeando archivos .pt en memoria para los meses: {meses}...")
         for mes in meses:
             path = os.path.join(tensors_dir, f"mes_{mes}.pt")
             if os.path.exists(path):
-                data = torch.load(path, map_location="cpu")
+                # mmap=True evita cargar todo a la RAM física de golpe
+                data = torch.load(path, map_location="cpu", mmap=True)
+                self.monthly_X[mes] = data['X']
+                self.monthly_Y[mes] = data['Y']
+                
                 n_samples = len(data['X'])
                 for local_idx in range(n_samples):
                     self.samples_index.append((mes, local_idx))
-                del data
                 
-        print(f"✅ Total de muestras indexadas (sin saturar RAM): {len(self.samples_index)}")
+        print(f"✅ ¡Mapeo exitoso! Total de muestras indexadas: {len(self.samples_index)}")
         
         self.stats_path = os.path.join("models_checkpoints", "normalization_stats.pt")
         if self.normalize:
             self._pre_calcular_o_cargar_stats()
-
-    def _cargar_mes_si_no_existe(self, mes):
-        if mes not in self.month_cache:
-            if len(self.month_cache) >= 2:
-                self.month_cache.clear()
-                
-            path = os.path.join(self.tensors_dir, f"mes_{mes}.pt")
-            data = torch.load(path, map_location="cpu")
-            self.month_cache[mes] = {
-                'X': data['X'],
-                'Y': data['Y']
-            }
 
     def __len__(self):
         return len(self.samples_index)
 
     def __getitem__(self, idx):
         mes, local_idx = self.samples_index[idx]
-        self._cargar_mes_si_no_existe(mes)
         
-        # x tiene forma (28, H, W)
-        x = self.month_cache[mes]['X'][local_idx]
-        # y tiene forma (1, H, W)
-        y = self.month_cache[mes]['Y'][local_idx]
+        # PyTorch extrae el dato directamente del archivo mapeado en disco de forma eficiente
+        x = self.monthly_X[mes][local_idx]
+        y = self.monthly_Y[mes][local_idx]
         
         if self.normalize:
-            # self.x_mean tiene forma (28, 1, 1), preservando exactamente (28, H, W)
             x = (x - self.x_mean) / self.x_std
             y = (y - self.y_mean) / self.y_std
             
@@ -67,14 +56,11 @@ class ColombiaWeatherDataset(Dataset):
             self.y_mean = stats['y_mean']
             self.y_std = stats['y_std']
         else:
-            print("📊 Calculando estadísticas globales de forma eficiente...")
+            print("📊 Calculando estadísticas globales...")
             primer_mes = self.meses[0]
-            path = os.path.join(self.tensors_dir, f"mes_{primer_mes}.pt")
-            data = torch.load(path, map_location="cpu")
-            X_sample = data['X'] # (N, 28, H, W)
-            Y_sample = data['Y'] # (N, 1, H, W)
+            X_sample = self.monthly_X[primer_mes]
+            Y_sample = self.monthly_Y[primer_mes]
             
-            # Ajustar formas a (28, 1, 1) y (1, 1, 1) para broadcasting seguro con 3D
             self.x_mean = X_sample.mean(dim=[0, 2, 3])[:, None, None]
             self.x_std = X_sample.std(dim=[0, 2, 3])[:, None, None].clamp(min=1e-5)
             self.y_mean = Y_sample.mean(dim=[0, 2, 3])[:, None, None]
