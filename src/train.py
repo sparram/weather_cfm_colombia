@@ -6,7 +6,7 @@ from tqdm import tqdm
 import gc
 
 from src.dataset import ColombiaWeatherDataset
-from src.models.unet import ConditionalUNet
+from src.models.fno import ConditionalFNO2d
 
 def entrenar_modelo():
     # 1. Configuración de dispositivos e hiperparámetros
@@ -17,7 +17,7 @@ def entrenar_modelo():
     epochs = 50
     lr = 1e-4
     
-    # 2. Cargar datasets limpios directamente desde los tensores pre-procesados
+    # 2. Cargar datasets mediante mapeo de memoria
     print("📦 Cargando datasets pre-procesados...")
     train_dataset = ColombiaWeatherDataset(meses=[f"{m:02d}" for m in range(1, 11)], normalize=True)
     val_dataset = ColombiaWeatherDataset(meses=[f"{m:02d}" for m in range(11, 13)], normalize=True)
@@ -27,17 +27,17 @@ def entrenar_modelo():
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=0)
     
-    # 3. Inicializar el modelo U-Net (28 canales de condición: 24 atmosféricos/DEM + 4 temporales)
-    print("🧠 Inicializando ConditionalUNet...")
-    model = ConditionalUNet(in_channels_cond=28, base_channels=32).to(device)
+    # 3. Inicializar el modelo FNO-CFM
+    print("🧠 Inicializando ConditionalFNO2d (Fourier Neural Operator)...")
+    model = ConditionalFNO2d(in_channels_cond=28, modes=12, width=48).to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     
     os.makedirs("models_checkpoints", exist_ok=True)
     best_val_loss = float('inf')
-    best_model_path = "models_checkpoints/best_model.pt"
+    best_model_path = "models_checkpoints/best_model_fno.pt"
     
-    print(f"🚀 Iniciando entrenamiento por {epochs} épocas...\n")
+    print(f"🚀 Iniciando entrenamiento FNO-CFM por {epochs} épocas...\n")
     
     for epoch in range(epochs):
         # --- FASE DE ENTRENAMIENTO ---
@@ -99,15 +99,15 @@ def entrenar_modelo():
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), best_model_path)
-            print(f"⭐ ¡Nuevo mejor modelo guardado en: {best_model_path} (Val Loss: {best_val_loss:.4f})!\n")
+            print(f"⭐ ¡Nuevo mejor modelo FNO guardado en: {best_model_path} (Val Loss: {best_val_loss:.4f})!\n")
         else:
             print(f"💾 Checkpoint regular guardado (Mejor Val Loss actual: {best_val_loss:.4f})\n")
-            torch.save(model.state_dict(), f"models_checkpoints/cfm_unet_epoch_{epoch+1}.pt")
+            torch.save(model.state_dict(), f"models_checkpoints/fno_cfm_epoch_{epoch+1}.pt")
 
         gc.collect()
         torch.cuda.empty_cache()
 
-    print("\n🎉 ¡Entrenamiento con validación temporal completado con éxito!")
+    print("\n🎉 ¡Entrenamiento FNO-CFM completado con éxito!")
 
 if __name__ == "__main__":
     entrenar_modelo()
